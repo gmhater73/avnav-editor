@@ -1,0 +1,969 @@
+[gd_scene load_steps=21 format=3 uid="uid://cgdpfb5tkypnb"]
+
+[ext_resource type="Texture2D" uid="uid://brc0jdghkgfj5" path="res://resources/map_full.png" id="1_6l4cc"]
+[ext_resource type="Script" path="res://scripts/camera_pan.gd" id="2"]
+[ext_resource type="Theme" uid="uid://dbl867v72apc1" path="res://styles/dark/theme.tres" id="3"]
+[ext_resource type="Script" path="res://scripts/http_server.gd" id="3_hipch"]
+[ext_resource type="Material" uid="uid://djrtao25tabg" path="res://resources/invert_color_behind_texture.tres" id="4"]
+[ext_resource type="Script" path="res://scripts/node_manager.gd" id="5"]
+[ext_resource type="Script" path="res://scripts/export_manager.gd" id="6"]
+[ext_resource type="Script" path="res://scripts/import_manager.gd" id="7"]
+[ext_resource type="Material" uid="uid://dfv4hhqft6a3x" path="res://resources/blur.tres" id="8"]
+[ext_resource type="StyleBox" uid="uid://dcr8eu0tg1vr" path="res://styles/dark/panel_transparent.tres" id="8_31cl4"]
+[ext_resource type="Script" path="res://scripts/node_inspector.gd" id="9"]
+[ext_resource type="FontFile" uid="uid://dg2s00dfb8y0h" path="res://resources/Montserrat.ttf" id="10"]
+[ext_resource type="Script" path="res://scripts/way_inspector.gd" id="11"]
+
+[sub_resource type="ButtonGroup" id="1"]
+
+[sub_resource type="GDScript" id="2"]
+script/source = "extends Control
+
+@onready var camera: Camera2D = get_node(\"/root/Root/Camera2D\")
+
+@onready var bounds: Rect2 = ProjectSettings.get_setting(\"Project/Bounds\")
+@onready var map_rect: Rect2 = get_node(\"/root/Root/Map\").get_rect()
+
+@onready var top_left = get_node(\"TopLeft\")
+@onready var top_right = get_node(\"TopRight\")
+@onready var bottom_left = get_node(\"BottomLeft\")
+@onready var bottom_right = get_node(\"BottomRight\")
+
+func _ready() -> void:
+	top_left.text = \"X: \" + str(bounds.position.x) + \"\\nY: \" + str(bounds.position.y)
+	top_right.text = \"X: \" + str(bounds.end.x) + \"\\nY: \" + str(bounds.position.y)
+	bottom_left.text = \"X: \" + str(bounds.position.x) + \"\\nY: \" + str(bounds.end.y)
+	bottom_right.text = \"X: \" + str(bounds.end.x) + \"\\nY: \" + str(bounds.end.y)
+	visible = true
+
+func _process(_delta: float) -> void:
+	top_left.position = camera.world_to_screen_coords(map_rect.position) - top_left.size
+	top_right.position = camera.world_to_screen_coords(Vector2(map_rect.end.x, map_rect.position.y)) + top_right.size * Vector2(0, -1)
+	bottom_left.position = camera.world_to_screen_coords(Vector2(map_rect.position.x, map_rect.end.y)) + bottom_left.size * Vector2(-1, 0)
+	bottom_right.position = camera.world_to_screen_coords(map_rect.end)
+"
+
+[sub_resource type="GDScript" id="3"]
+script/source = "extends ItemList
+
+@onready var node_manager: Control = get_node(\"/root/Root/GUI/NodeManager\")
+
+func _on_NodeManager_update_ways_view(ways: Array) -> void:
+	clear()
+	for i in range(0, len(ways)):
+		var way: Dictionary = ways[i]
+		add_item(str(i) + \" - \" + str(len(way.nodes)) + \" nodes\")
+		set_item_custom_bg_color(i, Color(way._color.r, way._color.g, way._color.b, 0.05))
+	if node_manager.selected_type == \"Way\": select(node_manager.selected[0])
+
+func _on_item_selected(index) -> void:
+	node_manager.set_selected(index, \"Way\")
+"
+
+[sub_resource type="GDScript" id="4"]
+script/source = "extends Label
+
+@onready var camera: Camera2D = get_node(\"/root/Root/Camera2D\")
+
+func _process(_delta: float) -> void:
+	var position: Vector2 = camera.screen_to_map_coords(get_global_mouse_position())
+	text = str(round(position.x)) + \", \" + str(round(position.y))
+"
+
+[sub_resource type="GDScript" id="5"]
+script/source = "extends Label
+
+@export var TOOLS_BUTTON_GROUP: ButtonGroup
+
+@export var ALL_TEXT: String = \"[Alt] Hide nodes\" # (String, MULTILINE)
+@export var SELECT_BUTTON_TEXT: String = \"To select Ways, use the Ways list\" # (String, MULTILINE)
+@export var NODE_BUTTON_TEXT: String = \"\" # (String, MULTILINE)
+@export var WAY_BUTTON_TEXT: String = \"[Shift]: Auto create nodes | [Ctrl]: Force create new Way\" # (String, MULTILINE)
+@export var DELETE_BUTTON_TEXT: String = \"To delete Ways, select them in the Ways list and click Delete in the inspector\" # (String, MULTILINE)
+
+func _process(delta: float) -> void:
+	var pressed_button: Button = TOOLS_BUTTON_GROUP.get_pressed_button()
+	
+	if pressed_button.name == \"SelectButton\":
+		text = ALL_TEXT + \"     \" + SELECT_BUTTON_TEXT
+	elif pressed_button.name == \"NodeButton\":
+		text = ALL_TEXT + \"     \" + NODE_BUTTON_TEXT
+	elif pressed_button.name == \"WayButton\":
+		text = ALL_TEXT + \"     \" + WAY_BUTTON_TEXT
+	elif pressed_button.name == \"DeleteButton\":
+		text = ALL_TEXT + \"     \" + DELETE_BUTTON_TEXT
+"
+
+[sub_resource type="StyleBoxEmpty" id="6"]
+
+[sub_resource type="GDScript" id="GDScript_p0tcy"]
+script/source = "extends Panel
+
+@onready var final_modulate: Color = modulate
+
+func _on_visibility_changed() -> void:
+	if visible:
+		modulate = Color(0, 0, 0, 0)
+		create_tween().tween_property(self, \"modulate\", final_modulate, 0.2).set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_QUINT)
+"
+
+[node name="Root" type="Node2D"]
+
+[node name="Map" type="Sprite2D" parent="."]
+texture_filter = 1
+texture_repeat = 1
+texture = ExtResource("1_6l4cc")
+offset = Vector2(0, 1000)
+
+[node name="Camera2D" type="Camera2D" parent="."]
+editor_draw_limits = true
+script = ExtResource("2")
+
+[node name="GUI" type="CanvasLayer" parent="."]
+
+[node name="HTTPServer" type="Node" parent="GUI"]
+unique_name_in_owner = true
+script = ExtResource("3_hipch")
+
+[node name="NodeManager" type="Control" parent="GUI"]
+unique_name_in_owner = true
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+mouse_filter = 2
+script = ExtResource("5")
+SELECT_RECTANGLE_COLOR = Color(0.392157, 0.584314, 0.929412, 0.498039)
+TOOLS_BUTTON_GROUP = SubResource("1")
+
+[node name="Debug" type="Label" parent="GUI/NodeManager"]
+material = ExtResource("4")
+layout_mode = 0
+offset_left = 10.0
+offset_top = 85.0
+offset_right = 64.0
+offset_bottom = 106.0
+theme = ExtResource("3")
+text = "Debug"
+
+[node name="BoundsLabels" type="Control" parent="GUI"]
+visible = false
+layout_mode = 3
+anchors_preset = 0
+offset_right = 40.0
+offset_bottom = 40.0
+theme = ExtResource("3")
+script = SubResource("2")
+
+[node name="TopLeft" type="Label" parent="GUI/BoundsLabels"]
+layout_mode = 0
+offset_right = 47.0
+offset_bottom = 14.0
+text = "TopLeft"
+
+[node name="TopRight" type="Label" parent="GUI/BoundsLabels"]
+layout_mode = 0
+offset_right = 47.0
+offset_bottom = 14.0
+text = "TopRight"
+
+[node name="BottomLeft" type="Label" parent="GUI/BoundsLabels"]
+layout_mode = 0
+offset_right = 47.0
+offset_bottom = 14.0
+text = "BottomLeft"
+
+[node name="BottomRight" type="Label" parent="GUI/BoundsLabels"]
+layout_mode = 0
+offset_right = 47.0
+offset_bottom = 14.0
+text = "BottomRight"
+
+[node name="TopBar" type="Panel" parent="GUI"]
+self_modulate = Color(1, 1, 1, 0.862745)
+material = ExtResource("8")
+anchors_preset = 10
+anchor_right = 1.0
+offset_bottom = 75.0
+size_flags_horizontal = 3
+size_flags_vertical = 0
+mouse_force_pass_scroll_events = false
+theme = ExtResource("3")
+
+[node name="MarginContainer" type="MarginContainer" parent="GUI/TopBar"]
+layout_mode = 0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 8.0
+offset_top = 5.0
+offset_right = -8.0
+offset_bottom = -5.0
+size_flags_horizontal = 3
+size_flags_vertical = 3
+
+[node name="ToolbarLeft" type="HBoxContainer" parent="GUI/TopBar/MarginContainer"]
+layout_mode = 2
+size_flags_horizontal = 0
+size_flags_vertical = 0
+theme_override_constants/separation = 0
+
+[node name="Project" type="MenuButton" parent="GUI/TopBar/MarginContainer/ToolbarLeft"]
+layout_mode = 2
+theme_override_colors/font_pressed_color = Color(1, 1, 1, 0.498039)
+theme_override_colors/font_hover_color = Color(1, 1, 1, 0.752941)
+text = "Project"
+switch_on_hover = true
+item_count = 6
+popup/item_0/text = "Project Settings..."
+popup/item_0/id = 0
+popup/item_0/disabled = true
+popup/item_1/text = "Import..."
+popup/item_1/id = 1
+popup/item_2/text = "Export..."
+popup/item_2/id = 2
+popup/item_3/text = ""
+popup/item_3/id = 3
+popup/item_3/separator = true
+popup/item_4/text = "0 nodes"
+popup/item_4/id = 4
+popup/item_4/disabled = true
+popup/item_5/text = "0 ways"
+popup/item_5/id = 5
+popup/item_5/disabled = true
+
+[node name="ToolbarRight" type="HBoxContainer" parent="GUI/TopBar/MarginContainer"]
+layout_mode = 2
+size_flags_horizontal = 8
+size_flags_vertical = 0
+alignment = 2
+
+[node name="MenuButton" type="MenuButton" parent="GUI/TopBar/MarginContainer/ToolbarRight"]
+layout_mode = 2
+theme_override_fonts/font = ExtResource("10")
+theme_override_font_sizes/font_size = 16
+disabled = true
+text = "AVNav Editor     R2"
+switch_on_hover = true
+
+[node name="ToolsLeft" type="HBoxContainer" parent="GUI/TopBar/MarginContainer"]
+layout_mode = 2
+size_flags_horizontal = 0
+size_flags_vertical = 8
+theme_override_constants/separation = 0
+
+[node name="SelectButton" type="Button" parent="GUI/TopBar/MarginContainer/ToolsLeft"]
+layout_mode = 2
+focus_mode = 0
+theme_override_colors/font_pressed_color = Color(1, 1, 1, 0.498039)
+theme_override_colors/font_hover_color = Color(1, 1, 1, 0.752941)
+toggle_mode = true
+button_pressed = true
+button_group = SubResource("1")
+text = "Select"
+flat = true
+
+[node name="NodeButton" type="Button" parent="GUI/TopBar/MarginContainer/ToolsLeft"]
+layout_mode = 2
+focus_mode = 0
+theme_override_colors/font_pressed_color = Color(1, 1, 1, 0.498039)
+theme_override_colors/font_hover_color = Color(1, 1, 1, 0.752941)
+toggle_mode = true
+button_group = SubResource("1")
+text = "Node"
+flat = true
+
+[node name="WayButton" type="Button" parent="GUI/TopBar/MarginContainer/ToolsLeft"]
+layout_mode = 2
+focus_mode = 0
+theme_override_colors/font_pressed_color = Color(1, 1, 1, 0.498039)
+theme_override_colors/font_hover_color = Color(1, 1, 1, 0.752941)
+toggle_mode = true
+button_group = SubResource("1")
+text = "Way"
+flat = true
+
+[node name="VSeparator" type="VSeparator" parent="GUI/TopBar/MarginContainer/ToolsLeft"]
+layout_mode = 2
+
+[node name="DeleteButton" type="Button" parent="GUI/TopBar/MarginContainer/ToolsLeft"]
+layout_mode = 2
+focus_mode = 0
+theme_override_colors/font_pressed_color = Color(1, 1, 1, 0.498039)
+theme_override_colors/font_hover_color = Color(1, 1, 1, 0.752941)
+toggle_mode = true
+button_group = SubResource("1")
+text = "Delete"
+flat = true
+
+[node name="RightBar" type="Panel" parent="GUI"]
+self_modulate = Color(1, 1, 1, 0.862745)
+material = ExtResource("8")
+anchors_preset = 11
+anchor_left = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -300.0
+offset_top = 75.0
+offset_bottom = -40.0
+size_flags_horizontal = 3
+size_flags_vertical = 0
+mouse_force_pass_scroll_events = false
+theme = ExtResource("3")
+
+[node name="MarginContainer" type="MarginContainer" parent="GUI/RightBar"]
+layout_mode = 0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 8.0
+offset_right = -8.0
+size_flags_horizontal = 3
+size_flags_vertical = 3
+
+[node name="VBoxContainer" type="VBoxContainer" parent="GUI/RightBar/MarginContainer"]
+layout_mode = 2
+
+[node name="Inspector" type="VBoxContainer" parent="GUI/RightBar/MarginContainer/VBoxContainer"]
+layout_mode = 2
+size_flags_vertical = 3
+size_flags_stretch_ratio = 1.5
+
+[node name="Label" type="Label" parent="GUI/RightBar/MarginContainer/VBoxContainer/Inspector"]
+layout_mode = 2
+text = "Inspector"
+horizontal_alignment = 1
+
+[node name="ScrollContainer" type="ScrollContainer" parent="GUI/RightBar/MarginContainer/VBoxContainer/Inspector"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+theme_override_styles/panel = ExtResource("8_31cl4")
+
+[node name="NodeInspector" type="VBoxContainer" parent="GUI/RightBar/MarginContainer/VBoxContainer/Inspector/ScrollContainer"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+script = ExtResource("9")
+
+[node name="HBoxContainer" type="HBoxContainer" parent="GUI/RightBar/MarginContainer/VBoxContainer/Inspector/ScrollContainer/NodeInspector"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="Name" type="Label" parent="GUI/RightBar/MarginContainer/VBoxContainer/Inspector/ScrollContainer/NodeInspector/HBoxContainer"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_colors/font_color = Color(1, 1, 1, 0.498039)
+text = "Node 0"
+
+[node name="HSeparator" type="HSeparator" parent="GUI/RightBar/MarginContainer/VBoxContainer/Inspector/ScrollContainer/NodeInspector"]
+layout_mode = 2
+
+[node name="PropertiesLabel" type="Label" parent="GUI/RightBar/MarginContainer/VBoxContainer/Inspector/ScrollContainer/NodeInspector"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_colors/font_color = Color(1, 1, 1, 0.498039)
+text = "Properties"
+
+[node name="PropertiesScrollContainer" type="ScrollContainer" parent="GUI/RightBar/MarginContainer/VBoxContainer/Inspector/ScrollContainer/NodeInspector"]
+layout_mode = 2
+size_flags_vertical = 3
+size_flags_stretch_ratio = 2.0
+theme_override_styles/panel = ExtResource("8_31cl4")
+
+[node name="VBoxContainer" type="VBoxContainer" parent="GUI/RightBar/MarginContainer/VBoxContainer/Inspector/ScrollContainer/NodeInspector/PropertiesScrollContainer"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="Position" type="HBoxContainer" parent="GUI/RightBar/MarginContainer/VBoxContainer/Inspector/ScrollContainer/NodeInspector/PropertiesScrollContainer/VBoxContainer"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="Label" type="Label" parent="GUI/RightBar/MarginContainer/VBoxContainer/Inspector/ScrollContainer/NodeInspector/PropertiesScrollContainer/VBoxContainer/Position"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "X, Y Pos."
+
+[node name="X" type="SpinBox" parent="GUI/RightBar/MarginContainer/VBoxContainer/Inspector/ScrollContainer/NodeInspector/PropertiesScrollContainer/VBoxContainer/Position"]
+layout_mode = 2
+size_flags_horizontal = 3
+min_value = -1e+10
+max_value = 1e+10
+rounded = true
+allow_greater = true
+allow_lesser = true
+
+[node name="Y" type="SpinBox" parent="GUI/RightBar/MarginContainer/VBoxContainer/Inspector/ScrollContainer/NodeInspector/PropertiesScrollContainer/VBoxContainer/Position"]
+layout_mode = 2
+size_flags_horizontal = 3
+min_value = -1e+10
+max_value = 1e+10
+rounded = true
+allow_greater = true
+allow_lesser = true
+
+[node name="WaysLabel" type="Label" parent="GUI/RightBar/MarginContainer/VBoxContainer/Inspector/ScrollContainer/NodeInspector"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_colors/font_color = Color(1, 1, 1, 0.498039)
+text = "Ways"
+
+[node name="WaysList" type="ItemList" parent="GUI/RightBar/MarginContainer/VBoxContainer/Inspector/ScrollContainer/NodeInspector"]
+layout_mode = 2
+size_flags_vertical = 3
+theme_override_styles/panel = ExtResource("8_31cl4")
+
+[node name="WayInspector" type="VBoxContainer" parent="GUI/RightBar/MarginContainer/VBoxContainer/Inspector/ScrollContainer"]
+visible = false
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+script = ExtResource("11")
+
+[node name="HBoxContainer" type="HBoxContainer" parent="GUI/RightBar/MarginContainer/VBoxContainer/Inspector/ScrollContainer/WayInspector"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="Name" type="Label" parent="GUI/RightBar/MarginContainer/VBoxContainer/Inspector/ScrollContainer/WayInspector/HBoxContainer"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_colors/font_color = Color(1, 1, 1, 0.498039)
+text = "Way 0"
+
+[node name="Details" type="Label" parent="GUI/RightBar/MarginContainer/VBoxContainer/Inspector/ScrollContainer/WayInspector/HBoxContainer"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_colors/font_color = Color(1, 1, 1, 0.498039)
+text = "0 nodes"
+
+[node name="HSeparator" type="HSeparator" parent="GUI/RightBar/MarginContainer/VBoxContainer/Inspector/ScrollContainer/WayInspector"]
+layout_mode = 2
+
+[node name="PropertiesLabel" type="Label" parent="GUI/RightBar/MarginContainer/VBoxContainer/Inspector/ScrollContainer/WayInspector"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_colors/font_color = Color(1, 1, 1, 0.498039)
+text = "Properties"
+
+[node name="PropertiesScrollContainer" type="ScrollContainer" parent="GUI/RightBar/MarginContainer/VBoxContainer/Inspector/ScrollContainer/WayInspector"]
+layout_mode = 2
+size_flags_vertical = 3
+size_flags_stretch_ratio = 2.0
+
+[node name="VBoxContainer" type="VBoxContainer" parent="GUI/RightBar/MarginContainer/VBoxContainer/Inspector/ScrollContainer/WayInspector/PropertiesScrollContainer"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="WaysList" type="VBoxContainer" parent="GUI/RightBar/MarginContainer/VBoxContainer"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="Label" type="Label" parent="GUI/RightBar/MarginContainer/VBoxContainer/WaysList"]
+layout_mode = 2
+text = "Ways"
+horizontal_alignment = 1
+
+[node name="ItemList" type="ItemList" parent="GUI/RightBar/MarginContainer/VBoxContainer/WaysList"]
+layout_mode = 2
+size_flags_vertical = 3
+theme_override_styles/panel = ExtResource("8_31cl4")
+script = SubResource("3")
+
+[node name="BottomBar" type="Panel" parent="GUI"]
+self_modulate = Color(1, 1, 1, 0.862745)
+material = ExtResource("8")
+anchors_preset = 12
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_top = -40.0
+size_flags_horizontal = 3
+size_flags_vertical = 0
+mouse_force_pass_scroll_events = false
+theme = ExtResource("3")
+
+[node name="MarginContainer" type="MarginContainer" parent="GUI/BottomBar"]
+layout_mode = 0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 10.0
+offset_top = 5.0
+offset_right = -10.0
+offset_bottom = -5.0
+size_flags_horizontal = 3
+size_flags_vertical = 3
+theme_override_constants/margin_left = 0
+theme_override_constants/margin_top = 0
+theme_override_constants/margin_right = 0
+theme_override_constants/margin_bottom = 0
+
+[node name="Left" type="HBoxContainer" parent="GUI/BottomBar/MarginContainer"]
+layout_mode = 2
+size_flags_horizontal = 0
+
+[node name="CursorPositionToMap" type="Label" parent="GUI/BottomBar/MarginContainer/Left"]
+layout_mode = 2
+size_flags_horizontal = 0
+size_flags_vertical = 1
+text = "Map X, Map Y"
+horizontal_alignment = 1
+vertical_alignment = 1
+script = SubResource("4")
+
+[node name="Right" type="HBoxContainer" parent="GUI/BottomBar/MarginContainer"]
+layout_mode = 2
+size_flags_horizontal = 8
+
+[node name="Keybinds" type="Label" parent="GUI/BottomBar/MarginContainer/Right"]
+layout_mode = 2
+size_flags_horizontal = 0
+size_flags_vertical = 1
+theme_override_colors/font_color = Color(1, 1, 1, 0.25098)
+text = "Keybinds"
+horizontal_alignment = 1
+vertical_alignment = 1
+script = SubResource("5")
+TOOLS_BUTTON_GROUP = SubResource("1")
+ALL_TEXT = "[Ctrl+Z] Undo     [Ctrl+Y] Redo     [Alt] Hide nodes"
+SELECT_BUTTON_TEXT = "[Ctrl] Select multiple nodes     To select Ways, use the Ways list"
+WAY_BUTTON_TEXT = "[Shift] Auto create nodes     [Ctrl] Force create new Way or force use selected Way"
+
+[node name="ExportDialog" type="Window" parent="GUI"]
+title = "Export"
+initial_position = 2
+size = Vector2i(400, 240)
+visible = false
+unresizable = true
+popup_window = true
+theme = ExtResource("3")
+script = ExtResource("6")
+
+[node name="MarginContainer" type="MarginContainer" parent="GUI/ExportDialog"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 10.0
+offset_top = 10.0
+offset_right = -20.0
+offset_bottom = 10.0
+grow_horizontal = 2
+grow_vertical = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+
+[node name="VBoxContainer" type="VBoxContainer" parent="GUI/ExportDialog/MarginContainer"]
+layout_mode = 2
+
+[node name="What" type="HBoxContainer" parent="GUI/ExportDialog/MarginContainer/VBoxContainer"]
+layout_mode = 2
+
+[node name="Label" type="Label" parent="GUI/ExportDialog/MarginContainer/VBoxContainer/What"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Choose what to export:"
+
+[node name="OptionButton" type="OptionButton" parent="GUI/ExportDialog/MarginContainer/VBoxContainer/What"]
+layout_mode = 2
+size_flags_horizontal = 3
+item_count = 3
+selected = 0
+popup/item_0/text = "Export All"
+popup/item_0/id = 0
+popup/item_1/text = "Nodes Only"
+popup/item_1/id = 1
+popup/item_2/text = "Ways Only"
+popup/item_2/id = 2
+
+[node name="NodesFilePath" type="HBoxContainer" parent="GUI/ExportDialog/MarginContainer/VBoxContainer"]
+layout_mode = 2
+
+[node name="Label" type="Label" parent="GUI/ExportDialog/MarginContainer/VBoxContainer/NodesFilePath"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Path to Nodes file:"
+
+[node name="HBoxContainer" type="HBoxContainer" parent="GUI/ExportDialog/MarginContainer/VBoxContainer/NodesFilePath"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="LineEdit" type="LineEdit" parent="GUI/ExportDialog/MarginContainer/VBoxContainer/NodesFilePath/HBoxContainer"]
+layout_mode = 2
+size_flags_horizontal = 3
+caret_blink = true
+
+[node name="ChoosePathButton" type="Button" parent="GUI/ExportDialog/MarginContainer/VBoxContainer/NodesFilePath/HBoxContainer"]
+layout_mode = 2
+text = "+"
+
+[node name="WaysFilePath" type="HBoxContainer" parent="GUI/ExportDialog/MarginContainer/VBoxContainer"]
+layout_mode = 2
+
+[node name="Label" type="Label" parent="GUI/ExportDialog/MarginContainer/VBoxContainer/WaysFilePath"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Path to Ways file:"
+
+[node name="HBoxContainer" type="HBoxContainer" parent="GUI/ExportDialog/MarginContainer/VBoxContainer/WaysFilePath"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="LineEdit" type="LineEdit" parent="GUI/ExportDialog/MarginContainer/VBoxContainer/WaysFilePath/HBoxContainer"]
+layout_mode = 2
+size_flags_horizontal = 3
+caret_blink = true
+
+[node name="ChoosePathButton" type="Button" parent="GUI/ExportDialog/MarginContainer/VBoxContainer/WaysFilePath/HBoxContainer"]
+layout_mode = 2
+text = "+"
+
+[node name="HSeparator" type="HSeparator" parent="GUI/ExportDialog/MarginContainer/VBoxContainer"]
+layout_mode = 2
+theme_override_styles/separator = SubResource("6")
+
+[node name="SeparatePartsByLineBreak" type="HBoxContainer" parent="GUI/ExportDialog/MarginContainer/VBoxContainer"]
+layout_mode = 2
+tooltip_text = "Separates output with line breaks every 4,000 characters.
+For convenience of placing data into the microcontroller property texts."
+
+[node name="Label" type="Label" parent="GUI/ExportDialog/MarginContainer/VBoxContainer/SeparatePartsByLineBreak"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Separate by line break?*"
+
+[node name="HBoxContainer" type="HBoxContainer" parent="GUI/ExportDialog/MarginContainer/VBoxContainer/SeparatePartsByLineBreak"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="CheckBox" type="CheckBox" parent="GUI/ExportDialog/MarginContainer/VBoxContainer/SeparatePartsByLineBreak/HBoxContainer"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Every 4000 characters"
+
+[node name="Compress" type="HBoxContainer" parent="GUI/ExportDialog/MarginContainer/VBoxContainer"]
+layout_mode = 2
+tooltip_text = "Enables compression introduced in Arid R1 (microcontrollers after April 2024).
+Reduces file size by a large amount.
+Not compatible with earlier microcontrollers!"
+
+[node name="Label" type="Label" parent="GUI/ExportDialog/MarginContainer/VBoxContainer/Compress"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "New compression?*"
+
+[node name="HBoxContainer" type="HBoxContainer" parent="GUI/ExportDialog/MarginContainer/VBoxContainer/Compress"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="CheckBox" type="CheckBox" parent="GUI/ExportDialog/MarginContainer/VBoxContainer/Compress/HBoxContainer"]
+layout_mode = 2
+size_flags_horizontal = 3
+button_pressed = true
+text = "Compress"
+
+[node name="HSeparator2" type="HSeparator" parent="GUI/ExportDialog/MarginContainer/VBoxContainer"]
+layout_mode = 2
+theme_override_styles/separator = SubResource("6")
+
+[node name="Action" type="HBoxContainer" parent="GUI/ExportDialog/MarginContainer/VBoxContainer"]
+layout_mode = 2
+alignment = 1
+
+[node name="ExportButton" type="Button" parent="GUI/ExportDialog/MarginContainer/VBoxContainer/Action"]
+layout_mode = 2
+text = "Export"
+
+[node name="CancelButton" type="Button" parent="GUI/ExportDialog/MarginContainer/VBoxContainer/Action"]
+layout_mode = 2
+text = "Cancel"
+
+[node name="ImportDialog" type="Window" parent="GUI"]
+title = "Import"
+initial_position = 2
+size = Vector2i(400, 160)
+visible = false
+unresizable = true
+popup_window = true
+theme = ExtResource("3")
+script = ExtResource("7")
+
+[node name="MarginContainer" type="MarginContainer" parent="GUI/ImportDialog"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 10.0
+offset_top = 10.0
+offset_right = -10.0
+offset_bottom = -10.0
+grow_horizontal = 2
+grow_vertical = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+
+[node name="VBoxContainer" type="VBoxContainer" parent="GUI/ImportDialog/MarginContainer"]
+layout_mode = 2
+
+[node name="NodesFilePath" type="HBoxContainer" parent="GUI/ImportDialog/MarginContainer/VBoxContainer"]
+layout_mode = 2
+
+[node name="Label" type="Label" parent="GUI/ImportDialog/MarginContainer/VBoxContainer/NodesFilePath"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Path to Nodes file:"
+
+[node name="HBoxContainer" type="HBoxContainer" parent="GUI/ImportDialog/MarginContainer/VBoxContainer/NodesFilePath"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="LineEdit" type="LineEdit" parent="GUI/ImportDialog/MarginContainer/VBoxContainer/NodesFilePath/HBoxContainer"]
+layout_mode = 2
+size_flags_horizontal = 3
+caret_blink = true
+
+[node name="ChoosePathButton" type="Button" parent="GUI/ImportDialog/MarginContainer/VBoxContainer/NodesFilePath/HBoxContainer"]
+layout_mode = 2
+text = "+"
+
+[node name="WaysFilePath" type="HBoxContainer" parent="GUI/ImportDialog/MarginContainer/VBoxContainer"]
+layout_mode = 2
+
+[node name="Label" type="Label" parent="GUI/ImportDialog/MarginContainer/VBoxContainer/WaysFilePath"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Path to Ways file:"
+
+[node name="HBoxContainer" type="HBoxContainer" parent="GUI/ImportDialog/MarginContainer/VBoxContainer/WaysFilePath"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="LineEdit" type="LineEdit" parent="GUI/ImportDialog/MarginContainer/VBoxContainer/WaysFilePath/HBoxContainer"]
+layout_mode = 2
+size_flags_horizontal = 3
+caret_blink = true
+
+[node name="ChoosePathButton" type="Button" parent="GUI/ImportDialog/MarginContainer/VBoxContainer/WaysFilePath/HBoxContainer"]
+layout_mode = 2
+text = "+"
+
+[node name="Overwrite" type="HBoxContainer" parent="GUI/ImportDialog/MarginContainer/VBoxContainer"]
+layout_mode = 2
+
+[node name="Label" type="Label" parent="GUI/ImportDialog/MarginContainer/VBoxContainer/Overwrite"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Overwrite existing?"
+
+[node name="HBoxContainer" type="HBoxContainer" parent="GUI/ImportDialog/MarginContainer/VBoxContainer/Overwrite"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="CheckBox" type="CheckBox" parent="GUI/ImportDialog/MarginContainer/VBoxContainer/Overwrite/HBoxContainer"]
+layout_mode = 2
+size_flags_horizontal = 3
+button_pressed = true
+text = "Overwrite"
+
+[node name="HSeparator" type="HSeparator" parent="GUI/ImportDialog/MarginContainer/VBoxContainer"]
+layout_mode = 2
+theme_override_styles/separator = SubResource("6")
+
+[node name="Action" type="HBoxContainer" parent="GUI/ImportDialog/MarginContainer/VBoxContainer"]
+layout_mode = 2
+alignment = 1
+
+[node name="ImportButton" type="Button" parent="GUI/ImportDialog/MarginContainer/VBoxContainer/Action"]
+layout_mode = 2
+text = "Import"
+
+[node name="CancelButton" type="Button" parent="GUI/ImportDialog/MarginContainer/VBoxContainer/Action"]
+layout_mode = 2
+text = "Cancel"
+
+[node name="NodesFileDialog" type="FileDialog" parent="GUI"]
+initial_position = 2
+size = Vector2i(750, 450)
+exclusive = false
+theme = ExtResource("3")
+access = 2
+filters = PackedStringArray("*.nodes.avn.txt ; AVNav Nodes", "*.* ; All files")
+use_native_dialog = true
+
+[node name="WaysFileDialog" type="FileDialog" parent="GUI"]
+initial_position = 2
+size = Vector2i(750, 450)
+exclusive = false
+theme = ExtResource("3")
+access = 2
+filters = PackedStringArray("*.ways.avn.txt ; AVNav Ways", "*.* ; All files")
+use_native_dialog = true
+
+[node name="ExportProgressDialog" type="Popup" parent="GUI"]
+title = "Exporting"
+initial_position = 2
+size = Vector2i(400, 100)
+exclusive = true
+theme = ExtResource("3")
+
+[node name="MarginContainer" type="MarginContainer" parent="GUI/ExportProgressDialog"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 10.0
+offset_top = 10.0
+offset_right = -10.0
+offset_bottom = -10.0
+
+[node name="VBoxContainer" type="VBoxContainer" parent="GUI/ExportProgressDialog/MarginContainer"]
+layout_mode = 2
+
+[node name="Label" type="Label" parent="GUI/ExportProgressDialog/MarginContainer/VBoxContainer"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 7
+text = "Exporting"
+
+[node name="ProgressBar" type="ProgressBar" parent="GUI/ExportProgressDialog/MarginContainer/VBoxContainer"]
+layout_mode = 2
+size_flags_vertical = 3
+step = 0.0
+value = 50.0
+
+[node name="Status" type="Label" parent="GUI/ExportProgressDialog/MarginContainer/VBoxContainer"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+text = "Status"
+
+[node name="WelcomeDialog" type="Popup" parent="GUI"]
+title = "Exporting"
+initial_position = 2
+size = Vector2i(400, 225)
+visible = true
+exclusive = true
+theme = ExtResource("3")
+
+[node name="MarginContainer" type="MarginContainer" parent="GUI/WelcomeDialog"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 10.0
+offset_top = 10.0
+offset_right = -10.0
+
+[node name="VBoxContainer" type="VBoxContainer" parent="GUI/WelcomeDialog/MarginContainer"]
+layout_mode = 2
+
+[node name="Title" type="Label" parent="GUI/WelcomeDialog/MarginContainer/VBoxContainer"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 7
+theme_override_fonts/font = ExtResource("10")
+theme_override_font_sizes/font_size = 24
+text = "AVNav Editor"
+horizontal_alignment = 1
+
+[node name="Label" type="Label" parent="GUI/WelcomeDialog/MarginContainer/VBoxContainer"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 7
+text = "Welcome to AVNav Editor R2 (18 January 2025).
+Note: This is unfinished software."
+
+[node name="LinkButtonSawyerMicrocontroller" type="LinkButton" parent="GUI/WelcomeDialog/MarginContainer/VBoxContainer"]
+layout_mode = 2
+text = "Microcontroller Sawyer (Steam Workshop)"
+uri = "https://steamcommunity.com/sharedfiles/filedetails/?id=2687216009"
+
+[node name="LinkButtonAridMicrocontroller" type="LinkButton" parent="GUI/WelcomeDialog/MarginContainer/VBoxContainer"]
+layout_mode = 2
+text = "Microcontroller Arid (Steam Workshop)"
+uri = "https://steamcommunity.com/sharedfiles/filedetails/?id=3276833115"
+
+[node name="LinkButtonEditorMission" type="LinkButton" parent="GUI/WelcomeDialog/MarginContainer/VBoxContainer"]
+visible = false
+layout_mode = 2
+text = "AVNav Recorder Mission (Steam Workshop)"
+
+[node name="LinkButtonGitHub" type="LinkButton" parent="GUI/WelcomeDialog/MarginContainer/VBoxContainer"]
+layout_mode = 2
+text = "AVNav Editor (GitHub)"
+uri = "https://github.com/gmhater73/avnav-editor"
+
+[node name="Status" type="Label" parent="GUI/WelcomeDialog/MarginContainer/VBoxContainer"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+theme_override_colors/font_color = Color(1, 1, 1, 0.498039)
+text = "Click anywhere to close this dialog."
+
+[node name="ImportProgressDialog" type="Popup" parent="GUI"]
+title = "Importing"
+initial_position = 2
+size = Vector2i(400, 100)
+exclusive = true
+theme = ExtResource("3")
+
+[node name="MarginContainer" type="MarginContainer" parent="GUI/ImportProgressDialog"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 10.0
+offset_top = 10.0
+offset_right = -10.0
+offset_bottom = -10.0
+
+[node name="VBoxContainer" type="VBoxContainer" parent="GUI/ImportProgressDialog/MarginContainer"]
+layout_mode = 2
+
+[node name="Label" type="Label" parent="GUI/ImportProgressDialog/MarginContainer/VBoxContainer"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 7
+text = "Importing"
+
+[node name="ProgressBar" type="ProgressBar" parent="GUI/ImportProgressDialog/MarginContainer/VBoxContainer"]
+layout_mode = 2
+size_flags_vertical = 3
+step = 0.0
+value = 50.0
+
+[node name="Status" type="Label" parent="GUI/ImportProgressDialog/MarginContainer/VBoxContainer"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+text = "Status"
+
+[node name="ScreenDim" type="Panel" parent="GUI"]
+unique_name_in_owner = true
+visible = false
+modulate = Color(0, 0, 0, 0.627451)
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+size_flags_horizontal = 3
+size_flags_vertical = 3
+script = SubResource("GDScript_p0tcy")
+
+[connection signal="update_inspector" from="GUI/NodeManager" to="GUI/RightBar/MarginContainer/VBoxContainer/Inspector/ScrollContainer/NodeInspector" method="_on_update_inspector"]
+[connection signal="update_inspector" from="GUI/NodeManager" to="GUI/RightBar/MarginContainer/VBoxContainer/Inspector/ScrollContainer/WayInspector" method="_on_update_inspector"]
+[connection signal="update_ways_view" from="GUI/NodeManager" to="GUI/RightBar/MarginContainer/VBoxContainer/WaysList/ItemList" method="_on_NodeManager_update_ways_view" flags=3]
+[connection signal="value_changed" from="GUI/RightBar/MarginContainer/VBoxContainer/Inspector/ScrollContainer/NodeInspector/PropertiesScrollContainer/VBoxContainer/Position/X" to="GUI/RightBar/MarginContainer/VBoxContainer/Inspector/ScrollContainer/NodeInspector" method="_on_position_x_value_changed"]
+[connection signal="value_changed" from="GUI/RightBar/MarginContainer/VBoxContainer/Inspector/ScrollContainer/NodeInspector/PropertiesScrollContainer/VBoxContainer/Position/Y" to="GUI/RightBar/MarginContainer/VBoxContainer/Inspector/ScrollContainer/NodeInspector" method="_on_position_y_value_changed"]
+[connection signal="item_selected" from="GUI/RightBar/MarginContainer/VBoxContainer/WaysList/ItemList" to="GUI/RightBar/MarginContainer/VBoxContainer/WaysList/ItemList" method="_on_item_selected"]
+[connection signal="visibility_changed" from="GUI/ExportDialog" to="GUI/ExportDialog" method="_on_visibility_changed"]
+[connection signal="item_selected" from="GUI/ExportDialog/MarginContainer/VBoxContainer/What/OptionButton" to="GUI/ExportDialog" method="_on_ExportWhat_item_selected"]
+[connection signal="pressed" from="GUI/ExportDialog/MarginContainer/VBoxContainer/NodesFilePath/HBoxContainer/ChoosePathButton" to="GUI/ExportDialog" method="_on_ChoosePathToNodesFile_pressed"]
+[connection signal="pressed" from="GUI/ExportDialog/MarginContainer/VBoxContainer/WaysFilePath/HBoxContainer/ChoosePathButton" to="GUI/ExportDialog" method="_on_ChoosePathToWaysFile_pressed"]
+[connection signal="pressed" from="GUI/ExportDialog/MarginContainer/VBoxContainer/Action/ExportButton" to="GUI/ExportDialog" method="_on_export_pressed"]
+[connection signal="pressed" from="GUI/ExportDialog/MarginContainer/VBoxContainer/Action/CancelButton" to="GUI/ExportDialog" method="_on_cancel_pressed"]
+[connection signal="visibility_changed" from="GUI/ImportDialog" to="GUI/ImportDialog" method="_on_visibility_changed"]
+[connection signal="pressed" from="GUI/ImportDialog/MarginContainer/VBoxContainer/NodesFilePath/HBoxContainer/ChoosePathButton" to="GUI/ImportDialog" method="_on_ChoosePathToNodesFile_pressed"]
+[connection signal="pressed" from="GUI/ImportDialog/MarginContainer/VBoxContainer/WaysFilePath/HBoxContainer/ChoosePathButton" to="GUI/ImportDialog" method="_on_ChoosePathToWaysFile_pressed"]
+[connection signal="pressed" from="GUI/ImportDialog/MarginContainer/VBoxContainer/Action/ImportButton" to="GUI/ImportDialog" method="_on_import_pressed"]
+[connection signal="pressed" from="GUI/ImportDialog/MarginContainer/VBoxContainer/Action/CancelButton" to="GUI/ImportDialog" method="_on_cancel_pressed"]
+[connection signal="file_selected" from="GUI/NodesFileDialog" to="GUI/ExportDialog" method="_on_NodesFileDialog_file_selected"]
+[connection signal="file_selected" from="GUI/NodesFileDialog" to="GUI/ImportDialog" method="_on_NodesFileDialog_file_selected"]
+[connection signal="file_selected" from="GUI/WaysFileDialog" to="GUI/ExportDialog" method="_on_WaysFileDialog_file_selected"]
+[connection signal="file_selected" from="GUI/WaysFileDialog" to="GUI/ImportDialog" method="_on_WaysFileDialog_file_selected"]
+[connection signal="visibility_changed" from="GUI/ScreenDim" to="GUI/ScreenDim" method="_on_visibility_changed"]
